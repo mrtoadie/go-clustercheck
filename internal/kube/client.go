@@ -154,8 +154,9 @@ type VersionResponse struct {
 
 // ObjectMeta is the metadata subset shared by all list responses.
 type ObjectMeta struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace,omitempty"`
+	Name      string            `json:"name"`
+	Namespace string            `json:"namespace,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 // NodeList matches a core/v1 Node list.
@@ -171,21 +172,77 @@ type NodeList struct {
 	} `json:"items"`
 }
 
+// ContainerStatus carries per-container runtime info of a pod.
+type ContainerStatus struct {
+	Name         string `json:"name"`
+	RestartCount int    `json:"restartCount"`
+}
+
+// Pod is the pod subset used by the checks.
+type Pod struct {
+	Meta   ObjectMeta `json:"metadata"`
+	Status struct {
+		Phase             string            `json:"phase"`
+		ContainerStatuses []ContainerStatus `json:"containerStatuses"`
+	} `json:"status"`
+}
+
 // PodList matches a core/v1 Pod list.
 type PodList struct {
-	Items []struct {
-		Meta ObjectMeta `json:"metadata"`
-	} `json:"items"`
+	Items []Pod `json:"items"`
+}
+
+// Namespace is the namespace subset used by the checks (labels matter for PSA).
+type Namespace struct {
+	Meta ObjectMeta `json:"metadata"`
 }
 
 // NamespaceList matches a core/v1 Namespace list.
 type NamespaceList struct {
+	Items []Namespace `json:"items"`
+}
+
+// PersistentVolumeList matches a core/v1 PersistentVolume list.
+type PersistentVolumeList struct {
+	Items []struct {
+		Meta   ObjectMeta `json:"metadata"`
+		Status struct {
+			Phase string `json:"phase"`
+		} `json:"status"`
+		Spec struct {
+			ClaimRef *struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+			} `json:"claimRef"`
+		} `json:"spec"`
+	} `json:"items"`
+}
+
+// PersistentVolumeClaimList matches a core/v1 PVC list (all namespaces).
+type PersistentVolumeClaimList struct {
+	Items []struct {
+		Meta   ObjectMeta `json:"metadata"`
+		Status struct {
+			Phase string `json:"phase"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+// StorageClassList matches storage.k8s.io/v1 StorageClasses.
+type StorageClassList struct {
 	Items []struct {
 		Meta ObjectMeta `json:"metadata"`
 	} `json:"items"`
 }
 
-// Convenience wrappers used by checks.
+// NetworkPolicyList matches networking.k8s.io/v1 NetworkPolicies (all namespaces).
+type NetworkPolicyList struct {
+	Items []struct {
+		Meta ObjectMeta `json:"metadata"`
+	} `json:"items"`
+}
+
+// ---- Convenience wrappers used by checks ----
 
 func (c *Client) Version(ctx context.Context) (*VersionResponse, error) {
 	var v VersionResponse
@@ -217,4 +274,36 @@ func (c *Client) Namespaces(ctx context.Context) (*NamespaceList, error) {
 		return nil, err
 	}
 	return &ns, nil
+}
+
+func (c *Client) PersistentVolumes(ctx context.Context) (*PersistentVolumeList, error) {
+	var pv PersistentVolumeList
+	if err := c.GetJSON(ctx, "/api/v1/persistentvolumes", &pv); err != nil {
+		return nil, err
+	}
+	return &pv, nil
+}
+
+func (c *Client) PersistentVolumeClaimsAll(ctx context.Context) (*PersistentVolumeClaimList, error) {
+	var pvc PersistentVolumeClaimList
+	if err := c.GetJSON(ctx, "/api/v1/persistentvolumeclaims", &pvc); err != nil {
+		return nil, err
+	}
+	return &pvc, nil
+}
+
+func (c *Client) StorageClasses(ctx context.Context) (*StorageClassList, error) {
+	var sc StorageClassList
+	if err := c.GetJSON(ctx, "/apis/storage.k8s.io/v1/storageclasses", &sc); err != nil {
+		return nil, err
+	}
+	return &sc, nil
+}
+
+func (c *Client) NetworkPoliciesAll(ctx context.Context) (*NetworkPolicyList, error) {
+	var np NetworkPolicyList
+	if err := c.GetJSON(ctx, "/apis/networking.k8s.io/v1/networkpolicies", &np); err != nil {
+		return nil, err
+	}
+	return &np, nil
 }

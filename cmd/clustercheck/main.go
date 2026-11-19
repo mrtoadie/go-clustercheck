@@ -33,6 +33,11 @@ func main() {
 	// nothing else in main needs to change.
 	checks := []audit.Check{
 		audit.NewClusterInfo(),
+		audit.NewStorage(),
+		audit.NewPodIssues(),
+		audit.NewPodRestarts(),
+		audit.NewNetworkPolicies(),
+		audit.NewPSA(),
 	}
 
 	ctx := context.Background()
