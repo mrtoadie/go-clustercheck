@@ -154,9 +154,10 @@ type VersionResponse struct {
 
 // ObjectMeta is the metadata subset shared by all list responses.
 type ObjectMeta struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace,omitempty"`
+	Labels            map[string]string `json:"labels,omitempty"`
+	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 }
 
 // NodeList matches a core/v1 Node list.
@@ -176,6 +177,11 @@ type NodeList struct {
 type ContainerStatus struct {
 	Name         string `json:"name"`
 	RestartCount int    `json:"restartCount"`
+	LastState    struct {
+		Terminated *struct {
+			FinishedAt string `json:"finishedAt"`
+		} `json:"terminated"`
+	} `json:"lastState"`
 }
 
 // Pod is the pod subset used by the checks.

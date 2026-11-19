@@ -10,7 +10,8 @@ import (
 )
 
 // Storage mirrors the STORAGE STATUS section of the bash script:
-// StorageClasses (incl. default), PV phases and pending PVCs.
+// StorageClasses (incl. default), PV phases, released PV leftovers and
+// pending PVCs.
 type Storage struct{}
 
 // NewStorage returns the check instance.
@@ -23,16 +24,15 @@ func (Storage) Name() string { return "Storage Status" }
 func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 	res := Result{Title: "Storage Status", Status: StatusOK}
 
-	// StorageClasses and default SC
+	// StorageClasses
 	if scs, err := c.StorageClasses(ctx); err != nil {
 		res.Lines = append(res.Lines, Line{Key: "StorageClasses", Value: fmt.Sprintf("error: %v", err), Status: StatusWarn})
 	} else {
-
 		res.Lines = append(res.Lines, Line{Key: "StorageClasses", Value: fmt.Sprintf("%d", len(scs.Items)), Status: StatusOK})
 	}
 
-	// NOTE: the default-class flag lives in ANNOTATIONS. StorageClassList above
-	// only decodes metadata.name, so we do a dedicated typed call here.
+	// Default StorageClass - the flag lives in annotations, fetched via a
+	// dedicated ad-hoc decode (the shared StorageClassList stays lean).
 	res.Lines = append(res.Lines, defaultStorageClassLines(ctx, c)...)
 
 	// PersistentVolumes by phase
@@ -55,8 +55,8 @@ func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 		}
 		res.Lines = append(res.Lines, Line{Key: "PVs", Value: sb.String(), Status: lineStatus})
 
-		// Released PVs are orphaned leftovers - worth surfacing explicitly
-		// (they pile up after namespace deletions with Retain-style reclaim).
+		// Released PVs are orphaned leftovers - typically from deleted
+		// namespaces with Retain-style reclaim. Worth naming explicitly.
 		if released := phases["Released"]; released > 0 {
 			var names []string
 			for _, pv := range pvs.Items {
@@ -100,9 +100,8 @@ func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 	return res
 }
 
-// defaultStorageClassLines fetches annotations directly via a small
-// ad-hoc decode, because the shared StorageClassList struct intentionally
-// stays lean.
+// defaultStorageClassLines reads storage class annotations directly,
+// because annotations live outside the shared lean list struct.
 func defaultStorageClassLines(ctx context.Context, c *kube.Client) []Line {
 	raw := struct {
 		Items []struct {
