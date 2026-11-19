@@ -1,8 +1,7 @@
 // Package main is the entry point for the clustercheck CLI.
 //
-// Stage 1 scope: bootstrap a Kubernetes API client from the local
-// kubeconfig (no client-go dependency) and run the first check
-// (ClusterInfo). Later stages add more checks, scoring and renderers.
+// Stage 2.5 scope: adds the markdown renderer flag. Colors now disable
+// themselves automatically when stdout is not a TTY.
 package main
 
 import (
@@ -21,6 +20,7 @@ var version = "dev"
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	md := flag.Bool("md", false, "render output as markdown instead of terminal format")
 	flag.Parse()
 
 	client, err := kube.NewClient(*kubeconfig)
@@ -33,6 +33,11 @@ func main() {
 	// nothing else in main needs to change.
 	checks := []audit.Check{
 		audit.NewClusterInfo(),
+		audit.NewStorage(),
+		audit.NewPodIssues(),
+		audit.NewPodRestarts(),
+		audit.NewNetworkPolicies(),
+		audit.NewPSA(),
 	}
 
 	ctx := context.Background()
@@ -47,7 +52,12 @@ func main() {
 		results = append(results, res)
 	}
 
-	report.RenderTerminal(results, version)
+	// One data source, two renderers - the whole point of the Go rewrite.
+	if *md {
+		report.RenderMarkdown(results, version)
+	} else {
+		report.RenderTerminal(results, version)
+	}
 
 	if failed {
 		os.Exit(1)
