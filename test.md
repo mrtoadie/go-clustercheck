@@ -1,6 +1,6 @@
 # Cluster Check Report
 
-**go-clustercheck** vdev · 2026-11-19 22:37
+**go-clustercheck** vdev · 2026-11-19 23:35
 
 **Summary:** 6 checks · ✅ 3 ok · ⚠️ 2 warnings · ❌ 1 failed
 
@@ -36,7 +36,7 @@
 | Status | Item | Value |
 |---|---|---|
 | ❌ | Containers | `38 above threshold, 15 active in last 24h (top 10)` |
-| ℹ️ | Details | `longhorn-system/longhorn-manager-wkmsg (longhorn-manager: 1981, 89.5/day) ACTIVE, longhorn-system/longhorn-manager-rfg6h (longhorn-manager: 944, 42.6/day) ACTIVE, longhorn-system/longhorn-manager-vrgjj (longhorn-manager: 939, 42.4/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-4jh4l (node-exporter: 437, 4.9/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-jc646 (node-exporter: 273, 2.5/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-xxxw5 (node-exporter: 259, 2.3/day), monitoring/monitoring-prometheus-node-exporter-qvdw2 (node-exporter: 248, 2.8/day) ACTIVE, monitoring/monitoring-kube-state-metrics-5794d648d-th8f4 (kube-state-metrics: 201, 1.8/day), cert-manager/cert-manager-cainjector-6ffc5b65d9-kj2kt (cert-manager-cainjector: 126, 4.0/day), kube-system/svclb-traefik-8d4930a1-zz5ll (lb-tcp-443: 119, 0.8/day)` |
+| ℹ️ | Details | `longhorn-system/longhorn-manager-wkmsg (longhorn-manager: 1992, 89.8/day) ACTIVE, longhorn-system/longhorn-manager-rfg6h (longhorn-manager: 955, 43.1/day) ACTIVE, longhorn-system/longhorn-manager-vrgjj (longhorn-manager: 950, 42.8/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-4jh4l (node-exporter: 437, 4.8/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-jc646 (node-exporter: 273, 2.5/day) ACTIVE, monitoring/monitoring-prometheus-node-exporter-xxxw5 (node-exporter: 259, 2.3/day), monitoring/monitoring-prometheus-node-exporter-qvdw2 (node-exporter: 248, 2.8/day) ACTIVE, monitoring/monitoring-kube-state-metrics-5794d648d-th8f4 (kube-state-metrics: 201, 1.8/day), cert-manager/cert-manager-cainjector-6ffc5b65d9-kj2kt (cert-manager-cainjector: 126, 4.0/day), kube-system/svclb-traefik-8d4930a1-zz5ll (lb-tcp-443: 119, 0.8/day)` |
 
 ## ⚠️ Network Policies
 
