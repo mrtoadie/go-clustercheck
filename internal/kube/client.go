@@ -313,3 +313,27 @@ func (c *Client) NetworkPoliciesAll(ctx context.Context) (*NetworkPolicyList, er
 	}
 	return &np, nil
 }
+
+// Secret is the secret subset used by the checks.
+type Secret struct {
+	Meta ObjectMeta        `json:"metadata"`
+	Type string            `json:"type"`
+	Data map[string][]byte `json:"data"`
+}
+
+// SecretList matches a core/v1 Secret list.
+type SecretList struct {
+	Items []Secret `json:"items"`
+}
+
+// SecretsAll fetches all secrets across namespaces.
+// CAUTION: secret data is base64-decoded automatically by encoding/json
+// into []byte. Handle the content responsibly - the certificate check
+// only parses public certificates and never logs private keys.
+func (c *Client) SecretsAll(ctx context.Context) (*SecretList, error) {
+	var list SecretList
+	if err := c.GetJSON(ctx, "/api/v1/secrets", &list); err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
