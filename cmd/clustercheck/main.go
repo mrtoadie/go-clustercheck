@@ -36,6 +36,7 @@ func main() {
 		audit.NewStorage(),
 		audit.NewPodIssues(),
 		audit.NewPodRestarts(),
+		audit.NewCertificates(),
 		audit.NewNetworkPolicies(),
 		audit.NewPSA(),
 	}
