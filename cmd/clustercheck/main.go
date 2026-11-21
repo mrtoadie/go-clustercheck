@@ -1,7 +1,9 @@
 // Package main is the entry point for the clustercheck CLI.
 //
-// Stage 2.5 scope: adds the markdown renderer flag. Colors now disable
-// themselves automatically when stdout is not a TTY.
+// Stage 4 scope: wires the readiness score into the output. Flags:
+//
+//	-noscore   skip the readiness score footer
+//	-md        markdown renderer (score appended as its own section)
 package main
 
 import (
@@ -13,6 +15,7 @@ import (
 	"github.com/mrtoadie/go-clustercheck/internal/audit"
 	"github.com/mrtoadie/go-clustercheck/internal/kube"
 	"github.com/mrtoadie/go-clustercheck/internal/report"
+	"github.com/mrtoadie/go-clustercheck/internal/score"
 )
 
 // version is injected at build time via -ldflags (see Makefile).
@@ -21,6 +24,7 @@ var version = "dev"
 func main() {
 	kubeconfig := flag.String("kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
 	md := flag.Bool("md", false, "render output as markdown instead of terminal format")
+	noScore := flag.Bool("noscore", false, "skip the production readiness score")
 	flag.Parse()
 
 	client, err := kube.NewClient(*kubeconfig)
@@ -29,8 +33,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// The check registry. Each stage of the migration appends here -
-	// nothing else in main needs to change.
 	checks := []audit.Check{
 		audit.NewClusterInfo(),
 		audit.NewStorage(),
@@ -53,11 +55,19 @@ func main() {
 		results = append(results, res)
 	}
 
-	// One data source, two renderers - the whole point of the Go rewrite.
+	// Aggregate the readiness score BEFORE rendering so both renderers
+	// can consume it from the same data basis.
+	// With -noscore we hand nil and the renderers skip the section.
+	var scoreRep *score.Report
+	if !*noScore {
+		rep := score.Aggregate(results)
+		scoreRep = &rep
+	}
+
 	if *md {
-		report.RenderMarkdown(results, version)
+		report.RenderMarkdown(results, version, scoreRep)
 	} else {
-		report.RenderTerminal(results, version)
+		report.RenderTerminal(results, version, scoreRep)
 	}
 
 	if failed {

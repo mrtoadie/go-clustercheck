@@ -1,8 +1,7 @@
 // Package audit defines the check interface and result types.
 //
 // Design principle: checks produce DATA, rendering happens separately
-// (internal/report). That is what enables the terminal and markdown
-// outputs to share one source of truth later.
+// (internal/report), and scoring is a pure aggregation (internal/score).
 package audit
 
 import (
@@ -18,7 +17,7 @@ const (
 	StatusOK Status = iota
 	StatusWarn
 	StatusFail
-	StatusInfo // informational - neither good nor bad
+	StatusInfo
 )
 
 // Line is one key/value detail row within a check result.
@@ -28,17 +27,26 @@ type Line struct {
 	Status Status // coloring hint for the terminal renderer
 }
 
+// ScoreImpact describes how a result contributes to the production
+// readiness score. Passed/Failed is decided HERE by the check (which has
+// full context), the score package only sums up and renders.
+type ScoreImpact struct {
+	CheckName string // human-readable check title, e.g. "All Nodes Ready"
+	Passed    bool   // whether this particular criterion is satisfied
+	Detail    string // short justification shown in the breakdown
+}
+
 // Result is the structured outcome of a single check.
 type Result struct {
 	Title  string
-	Status Status // overall status
-	Lines  []Line // detail rows
-	Err    error  // non-nil if the check could not execute at all
-	Scored bool   // whether this check contributes to the readiness score (stage 4)
+	Status Status
+	Lines  []Line
+	Err    error
+	Scored bool          // participates in the readiness score
+	Scores []ScoreImpact // one entry per scored criterion (a check may contribute several)
 }
 
-// Check is one audit function. Each stage of the Bash-to-Go migration
-// adds implementations of this interface.
+// Check is one audit function.
 type Check interface {
 	Name() string
 	Run(ctx context.Context, c *kube.Client) Result
