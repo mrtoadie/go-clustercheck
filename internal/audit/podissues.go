@@ -56,6 +56,7 @@ func (PodIssues) Run(ctx context.Context, c *kube.Client) Result {
 		CheckName: "No Problem Pods",
 		Passed:    len(problems) == 0,
 		Detail:    fmt.Sprintf("%d pods not Running/Succeeded", len(problems)),
+		Weight:    2,
 	})
 
 	return res

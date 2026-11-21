@@ -1,9 +1,9 @@
 // Package score aggregates check results into a production readiness
-// score, mirroring the 13 criteria of the original bash script.
+// score. Criteria carry explicit weights: fundamental health (nodes,
+// crashloops) outweighs hardening items (policies, hygiene).
 //
 // It is intentionally dumb: checks decide pass/fail (they own the
-// context), the score package counts, computes the percentage and
-// buckets it into a color grade.
+// context), the score package counts weighted points and renders.
 package score
 
 import (
@@ -15,10 +15,19 @@ import (
 
 // Report is the aggregated score output.
 type Report struct {
-	Passed  int
-	Total   int
-	Percent int
-	Entries []audit.ScoreImpact
+	PassedPoints int // weighted points earned
+	TotalPoints  int // weighted points possible
+	Criteria     int // number of scored criteria
+	Percent      int
+	Entries      []audit.ScoreImpact
+}
+
+// weight normalizes an unset weight to 1.
+func weight(si audit.ScoreImpact) int {
+	if si.Weight <= 0 {
+		return 1
+	}
+	return si.Weight
 }
 
 // Aggregate collects all scored criteria from the results.
@@ -29,22 +38,22 @@ func Aggregate(results []audit.Result) Report {
 			if strings.TrimSpace(si.CheckName) == "" {
 				continue
 			}
-			rep.Total++
+			rep.Criteria++
+			rep.TotalPoints += weight(si)
 			if si.Passed {
-				rep.Passed++
+				rep.PassedPoints += weight(si)
 			}
 			rep.Entries = append(rep.Entries, si)
 		}
 	}
-	if rep.Total == 0 {
+	if rep.TotalPoints == 0 {
 		return rep
 	}
-	rep.Percent = rep.Passed * 100 / rep.Total
+	rep.Percent = rep.PassedPoints * 100 / rep.TotalPoints
 	return rep
 }
 
-// Grade returns a color code per score band (mirrors the fixed bash
-// bug: bands match integers like 92 properly now).
+// Grade returns a color code per score band.
 func (r Report) Grade() string {
 	switch {
 	case r.Percent >= 90:
@@ -58,6 +67,6 @@ func (r Report) Grade() string {
 
 // Line is the single-line summary for the terminal footer.
 func (r Report) Line() string {
-	return fmt.Sprintf("Readiness Score: %d%% (%d/%d criteria passed) [grade: %s]",
-		r.Percent, r.Passed, r.Total, r.Grade())
+	return fmt.Sprintf("Readiness Score: %d%% (%d/%d weighted points, %d criteria) [grade: %s]",
+		r.Percent, r.PassedPoints, r.TotalPoints, r.Criteria, r.Grade())
 }

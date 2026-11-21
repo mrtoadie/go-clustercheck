@@ -69,5 +69,12 @@ func (NetworkPolicies) Run(ctx context.Context, c *kube.Client) Result {
 		})
 	}
 
+	res.Scores = append(res.Scores, ScoreImpact{
+		CheckName: "NetworkPolicy Coverage",
+		Passed:    len(unprotected) == 0,
+		Detail:    fmt.Sprintf("%d workload namespaces without NP", len(unprotected)),
+		Weight:    1,
+	})
+
 	return res
 }

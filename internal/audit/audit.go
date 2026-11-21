@@ -34,6 +34,7 @@ type ScoreImpact struct {
 	CheckName string // human-readable check title, e.g. "All Nodes Ready"
 	Passed    bool   // whether this particular criterion is satisfied
 	Detail    string // short justification shown in the breakdown
+	Weight    int    // relative importance; unset/0 is treated as 1
 }
 
 // Result is the structured outcome of a single check.

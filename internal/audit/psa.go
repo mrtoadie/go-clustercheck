@@ -58,5 +58,12 @@ func (PSA) Run(ctx context.Context, c *kube.Client) Result {
 		})
 	}
 
+	res.Scores = append(res.Scores, ScoreImpact{
+		CheckName: "PSA Enforcement",
+		Passed:    len(enforced) >= 8,
+		Detail:    fmt.Sprintf("%d/%d namespaces with enforce label", len(enforced), len(nsList.Items)),
+		Weight:    1,
+	})
+
 	return res
 }

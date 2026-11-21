@@ -75,6 +75,7 @@ func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 		CheckName: "All Nodes Ready",
 		Passed:    nodeErr == nil && len(nodes.Items) > 0 && ready == len(nodes.Items),
 		Detail:    fmt.Sprintf("%d/%d ready", ready, len(nodes.Items)),
+		Weight:    3,
 	})
 
 	return res

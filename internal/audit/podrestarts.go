@@ -85,6 +85,11 @@ func (PodRestarts) Run(ctx context.Context, c *kube.Client) Result {
 	if len(entries) == 0 {
 		res.Status = StatusOK
 		res.Lines = append(res.Lines, Line{Key: "Result", Value: "no containers with excessive restarts", Status: StatusOK})
+		res.Scores = append(res.Scores, ScoreImpact{
+			CheckName: "No Active Crashloops",
+			Passed:    true,
+			Detail:    "0 containers restarted within last 24h",
+		})
 		return res
 	}
 
@@ -132,6 +137,7 @@ func (PodRestarts) Run(ctx context.Context, c *kube.Client) Result {
 		CheckName: "No Active Crashloops",
 		Passed:    active == 0,
 		Detail:    fmt.Sprintf("%d containers restarted within last 24h", active),
+		Weight:    3,
 	})
 
 	return res

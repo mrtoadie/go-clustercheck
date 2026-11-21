@@ -1,0 +1,40 @@
+# Builds static binaries for linux/amd64 and linux/arm64 whenever a v*
+# tag is pushed, and publishes them as a GitHub release with generated
+# release notes.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries (amd64 + arm64)
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
+              go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "clustercheck-linux-$arch" ./cmd/clustercheck
+          done
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            clustercheck-linux-amd64 clustercheck-linux-arm64

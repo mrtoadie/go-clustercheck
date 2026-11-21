@@ -92,9 +92,10 @@ func RenderTerminal(results []audit.Result, version string, scoreRep *score.Repo
 	RenderScoreFooter(w, scoreRep)
 }
 
-// RenderScoreFooter prints the readiness score as the report footer.
+// RenderScoreFooter prints the readiness score as the report footer,
+// showing each criterion's weight so the influence is transparent.
 func RenderScoreFooter(w io.Writer, rep *score.Report) {
-	if rep == nil || rep.Total == 0 {
+	if rep == nil || rep.TotalPoints == 0 {
 		return
 	}
 	color := codeDim
@@ -115,6 +116,6 @@ func RenderScoreFooter(w io.Writer, rep *score.Report) {
 			glyph = "✓"
 			c = codeGreen
 		}
-		fmt.Fprintf(w, "  %s %s: %s\n", paint(c, glyph), e.CheckName, e.Detail)
+		fmt.Fprintf(w, "  %s %s (w%d): %s\n", paint(c, glyph), e.CheckName, e.Weight, e.Detail)
 	}
 }
