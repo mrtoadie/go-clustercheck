@@ -1,6 +1,6 @@
 # Builds static binaries for linux/amd64 and linux/arm64 whenever a v*
-# tag is pushed, and publishes them as a GitHub release with generated
-# release notes.
+# tag is pushed. Ships each binary twice: stripped original and
+# UPX-compressed variant, so users can choose.
 name: release
 
 on:
@@ -22,12 +22,16 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install UPX
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
+
       - name: Build binaries (amd64 + arm64)
         run: |
           for arch in amd64 arm64; do
             GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
-              go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
-              -o "clustercheck-linux-$arch" ./cmd/clustercheck
+              go build -ldflags "-s -w -trimpath -X main.version=${GITHUB_REF_NAME}" \
+              -o "clustercheck-linux-${arch}" ./cmd/clustercheck
+            upx --best --lzma -o "clustercheck-linux-${arch}-upx" "clustercheck-linux-${arch}"
           done
 
       - name: Create GitHub release
@@ -37,4 +41,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            clustercheck-linux-amd64 clustercheck-linux-arm64
+            clustercheck-linux-amd64 \
+            clustercheck-linux-arm64 \
+            clustercheck-linux-amd64-upx \
+            clustercheck-linux-arm64-upx
