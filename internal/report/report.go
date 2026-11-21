@@ -68,7 +68,7 @@ func statusGlyph(s audit.Status) string {
 func RenderTerminal(results []audit.Result, version string) {
 	w := os.Stdout
 
-	fmt.Fprintf(w, "\n%s\n\n", paint(codeBold+codeCyan, "| go-clustercheck (v"+version+")"))
+	fmt.Fprintf(w, "\n%s\n\n", paint(codeBold+codeCyan, "| go-clustercheck ("+version+")"))
 
 	for _, res := range results {
 		fmt.Fprintf(w, "%s\n", paint(codeBold+codeCyan, "| "+res.Title))
