@@ -4,14 +4,14 @@ package report
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/mrtoadie/go-clustercheck/internal/audit"
+	"github.com/mrtoadie/go-clustercheck/internal/score"
 )
 
-// useColor is true only when stdout is a TTY. Piping into files or tools
-// then produces clean output without escape sequences - same behavior
-// as ls, grep and friends. No sed acrobatics needed anymore.
+// useColor is true only when stdout is a TTY.
 var useColor bool
 
 func init() {
@@ -64,8 +64,9 @@ func statusGlyph(s audit.Status) string {
 	}
 }
 
-// RenderTerminal writes all results in the familiar bash-script layout.
-func RenderTerminal(results []audit.Result, version string) {
+// RenderTerminal writes all results in the familiar bash-script layout,
+// followed by the readiness score footer (if a score report is given).
+func RenderTerminal(results []audit.Result, version string, scoreRep *score.Report) {
 	w := os.Stdout
 
 	fmt.Fprintf(w, "\n%s\n\n", paint(codeBold+codeCyan, "| go-clustercheck ("+version+")"))
@@ -87,4 +88,34 @@ func RenderTerminal(results []audit.Result, version string) {
 	}
 
 	fmt.Fprintf(w, "%s\n", paint(codeDim, fmt.Sprintf("%d check(s) executed.", len(results))))
+
+	RenderScoreFooter(w, scoreRep)
+}
+
+// RenderScoreFooter prints the readiness score as the report footer,
+// showing each criterion's weight so the influence is transparent.
+func RenderScoreFooter(w io.Writer, rep *score.Report) {
+	if rep == nil || rep.TotalPoints == 0 {
+		return
+	}
+	color := codeDim
+	switch rep.Grade() {
+	case "green":
+		color = codeGreen
+	case "yellow":
+		color = codeYellow
+	default:
+		color = codeRed
+	}
+	fmt.Fprintf(w, "\n%s\n", paint(color, rep.Line()))
+	fmt.Fprintf(w, "%s\n", paint(codeDim, "──────────────────────────────"))
+	for _, e := range rep.Entries {
+		glyph := "✗"
+		c := codeRed
+		if e.Passed {
+			glyph = "✓"
+			c = codeGreen
+		}
+		fmt.Fprintf(w, "  %s %s (w%d): %s\n", paint(c, glyph), e.CheckName, e.Weight, e.Detail)
+	}
 }

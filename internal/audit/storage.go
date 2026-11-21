@@ -37,6 +37,8 @@ func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 
 	// PersistentVolumes by phase
 	pvs, err := c.PersistentVolumes(ctx)
+	pvFailed, pvReleased := 0, 0
+
 	if err != nil {
 		res.Lines = append(res.Lines, Line{Key: "PVs", Value: fmt.Sprintf("error: %v", err), Status: StatusWarn})
 	} else {
@@ -44,6 +46,8 @@ func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 		for _, pv := range pvs.Items {
 			phases[pv.Status.Phase]++
 		}
+		pvFailed = phases["Failed"]
+		pvReleased = phases["Released"]
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("%d total", len(pvs.Items)))
 		for _, phase := range sortedKeys(phases) {
@@ -96,6 +100,15 @@ func (Storage) Run(ctx context.Context, c *kube.Client) Result {
 			Status: lineStatus,
 		})
 	}
+
+	// Score criterion: no failed or orphaned PVs. Unknown state (fetch
+	// error) counts as failed - silence is not a pass.
+	res.Scores = append(res.Scores, ScoreImpact{
+		CheckName: "PV Hygiene",
+		Passed:    err == nil && pvFailed == 0 && pvReleased == 0,
+		Detail:    fmt.Sprintf("failed=%d released=%d", pvFailed, pvReleased),
+		Weight:    1,
+	})
 
 	return res
 }

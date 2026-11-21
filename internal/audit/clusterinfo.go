@@ -42,28 +42,25 @@ func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 	}
 
 	// Node count incl. Ready condition
-	nodes, err := c.Nodes(ctx)
-	if err != nil {
-		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("error: %v", err), Status: StatusWarn})
-	} else {
-		ready := 0
-		for _, n := range nodes.Items {
-			for _, cond := range n.Status.Conditions {
-				if cond.Type == "Ready" && cond.Status == "True" {
-					ready++
-					break
-				}
+	nodes, nodeErr := c.Nodes(ctx)
+	if nodeErr != nil {
+		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("error: %v", nodeErr), Status: StatusWarn})
+	}
+	ready := 0
+	for _, n := range nodes.Items {
+		for _, cond := range n.Status.Conditions {
+			if cond.Type == "Ready" && cond.Status == "True" {
+				ready++
+				break
 			}
 		}
-		status := StatusOK
+	}
+	if nodeErr == nil {
+		lineStatus := StatusOK
 		if ready != len(nodes.Items) {
-			status = StatusWarn
+			lineStatus = StatusWarn
 		}
-		res.Lines = append(res.Lines, Line{
-			Key:    "Nodes",
-			Value:  fmt.Sprintf("%d total / %d ready", len(nodes.Items), ready),
-			Status: status,
-		})
+		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("%d total / %d ready", len(nodes.Items), ready), Status: lineStatus})
 	}
 
 	// Pod count
@@ -72,6 +69,14 @@ func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 	} else {
 		res.Lines = append(res.Lines, Line{Key: "Pods", Value: fmt.Sprintf("%d", len(pods.Items)), Status: StatusOK})
 	}
+
+	// Score criterion: every node reports Ready
+	res.Scores = append(res.Scores, ScoreImpact{
+		CheckName: "All Nodes Ready",
+		Passed:    nodeErr == nil && len(nodes.Items) > 0 && ready == len(nodes.Items),
+		Detail:    fmt.Sprintf("%d/%d ready", ready, len(nodes.Items)),
+		Weight:    3,
+	})
 
 	return res
 }

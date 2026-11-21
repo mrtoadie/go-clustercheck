@@ -117,6 +117,18 @@ func (ch Certificates) Run(ctx context.Context, c *kube.Client) Result {
 		})
 	}
 
+	// Score criterion: no expired or soon-expiring certs
+	res.Scores = append(res.Scores, ScoreImpact{
+		CheckName: "Certificates Valid",
+		Passed:    len(expired) == 0 && len(expiring) == 0,
+		Detail:    fmt.Sprintf("%d expired, %d expiring <%dd", len(expired), len(expiring), ch.WarnWindowDays),
+		Weight:    2,
+	})
+
+	if res.Status == StatusWarn || res.Status == StatusFail {
+		return res
+	}
+
 	if res.Status == StatusWarn || res.Status == StatusFail {
 		return res
 	}
