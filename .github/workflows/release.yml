@@ -29,7 +29,7 @@ jobs:
         run: |
           for arch in amd64 arm64; do
             GOOS=linux GOARCH=$arch CGO_ENABLED=0 \
-              go build -ldflags "-s -w -trimpath -X main.version=${GITHUB_REF_NAME}" \
+              go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
               -o "clustercheck-linux-${arch}" ./cmd/clustercheck
             upx --best --lzma -o "clustercheck-linux-${arch}-upx" "clustercheck-linux-${arch}"
           done
