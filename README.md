@@ -172,4 +172,4 @@ findings make better documentation than pristine green.)_
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — [LICENSE](LICENSE).
