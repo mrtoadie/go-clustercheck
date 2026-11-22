@@ -4,7 +4,7 @@
 ![Release](https://img.shields.io/github/v/tag/mrtoadie/go-clustercheck?label=release)
 ![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-blue)
-![License](https://img.shields.io/github/license/mrtoadie/go-clustercheck) [![Repo size](https://img.shields.io/github/repo-size/mrtoadie/go-clustercheck)](https://github.com/mrtoadie/go-clustercheck) ![GitHub Repo stars](https://img.shields.io/github/stars/mrtoadie/go-clustercheck?style=flat&label=Stars)
+![License](https://img.shields.io/github/license/mrtoadie/go-clustercheck) [![Repo size](https://img.shields.io/github/repo-size/mrtoadie/go-clustercheck)](https://github.com/mrtoadie/go-clustercheck) ![GitHub Repo stars](https://img.shields.io/github/stars/mrtoadie/go-clustercheck?style=flat&label=Stars) ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/mrtoadie/go-clustercheck/total)
 
 **Kubernetes production-readiness audit as a single static Go binary.**
 Zero `client-go` dependency, structured check results, two renderers from
