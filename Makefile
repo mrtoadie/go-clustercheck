@@ -15,13 +15,8 @@ build: compress
 
 compress:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY) ./cmd/clustercheck
-	$(UPX) $(BIN_DIR)/$(BINARY)
-ifdef COMPRESS
-	ifeq ($(COMPRESS),0)
-		@echo "Skipping UPX compression"
-	else
-		$(UPX) $(BIN_DIR)/$(BINARY)
-	endif
+ifeq ($(COMPRESS),0)
+	@echo "Skipping UPX compression"
 else
 	$(UPX) $(BIN_DIR)/$(BINARY)
 endif
