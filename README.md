@@ -64,15 +64,22 @@ Plus a **weighted readiness score** across all checks: fundamental health
 hardening items weigh 1. The weights are visible in every output, so the
 score is an explained opinion, not a magic number.
 
-### Age-normalized restart detection
+### Crashloop discrimination
 
-Raw restart counts lie on clusters that get powered down regularly.
-`clustercheck` divides the count by pod age and checks `lastState`
-termination timestamps:
+Raw restart counts lie on clusters that get powered down regularly —
+a nightly power cycle restarts every pod once per day, and naive
+recency checks misread that as an active crashloop. `clustercheck`
+requires **both** signals before flagging a container as ACTIVE:
 
-- **FAIL** — restarted within the last 24h: active crashloop
-- **WARN** — sustained rate of ≥1 restart/day: chronic instability
-- historic counts on long-lived pods are reported, but don't dominate
+- **FAIL** — restarts are _dense_ (rate ≥ 1/day) **and** _recent_
+  (last restart < 6h): active crashloop, look now
+- **WARN** — sustained restart rate ≥ 1/day over the pod's lifetime:
+  chronic instability
+- **INFO** — high historic counts on long-lived pods: statistics, not
+  incidents
+
+Boot artifacts don't fail the check — real crashloops repeat quickly,
+boot restarts do not.
 
 ## Usage
 
@@ -93,6 +100,17 @@ termination timestamps:
 Exit code is `1` if any check reported a FAIL (e.g. active crashloop,
 expired certificate) — safe for cron jobs and pipelines.
 
+## Tested Platforms
+
+The binary is statically linked (`CGO_ENABLED=0`) and intentionally has no
+runtime dependencies — if it boots a Linux kernel, it should run. Verified
+in the wild on:
+
+| Platform                       | Arch  | Runs on                    |
+| ------------------------------ | ----- | -------------------------- |
+| Arch Linux                     | amd64 | daily driver / workstation |
+| Raspberry Pi OS (Debian-based) | arm64 | k3s cluster nodes          |
+
 ## Installation
 
 Grab a binary from the [releases](../../releases) page:
@@ -101,6 +119,10 @@ Grab a binary from the [releases](../../releases) page:
 curl -LO https://github.com/mrtoadie/go-clustercheck/releases/latest/download/clustercheck-linux-arm64
 chmod +x clustercheck-linux-arm64
 ```
+
+Both release variants (`-upx` suffix: ~60% smaller, marginally slower
+startup) are exercised on x86_64 desktops and on the ARM64 Raspberry Pi
+nodes that make up the cluster being audited.
 
 Requires a valid kubeconfig with cluster-admin-ish read permissions
 (the tool only performs GET requests).
