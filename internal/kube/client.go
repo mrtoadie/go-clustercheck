@@ -174,10 +174,19 @@ type NodeList struct {
 }
 
 // ContainerStatus carries per-container runtime info of a pod.
+// State.Waiting.Reason catches CrashLoopBackOff/ImagePullBackOff - the
+// pod phase stays "Running" while the container is actually down.
+// LastState.Terminated.FinishedAt tells us WHEN the last restart
+// happened - the difference between an active crashloop and historic noise.
 type ContainerStatus struct {
 	Name         string `json:"name"`
 	RestartCount int    `json:"restartCount"`
-	LastState    struct {
+	State        struct {
+		Waiting *struct {
+			Reason string `json:"reason"`
+		} `json:"waiting"`
+	} `json:"state"`
+	LastState struct {
 		Terminated *struct {
 			FinishedAt string `json:"finishedAt"`
 		} `json:"terminated"`
@@ -336,4 +345,102 @@ func (c *Client) SecretsAll(ctx context.Context) (*SecretList, error) {
 		return nil, err
 	}
 	return &list, nil
+}
+
+// RawText performs a GET and returns the body as plain text (for
+// non-JSON endpoints like /readyz?verbose).
+func (c *Client) RawText(ctx context.Context, apiPath string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.server+apiPath, nil)
+	if err != nil {
+		return "", fmt.Errorf("building request: %w", err)
+	}
+	switch {
+	case c.authP.token != "":
+		req.Header.Set("Authorization", "Bearer "+c.authP.token)
+	case c.authP.username != "":
+		req.SetBasicAuth(c.authP.username, c.authP.password)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request %s: %w", apiPath, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s returned %d: %s", apiPath, resp.StatusCode, truncate(string(body), 200))
+	}
+	return string(body), nil
+}
+
+// PodDisruptionBudgetList matches policy/v1 PDBs (all namespaces).
+type PodDisruptionBudgetList struct {
+	Items []struct {
+		Meta   ObjectMeta `json:"metadata"`
+		Status struct {
+			DisruptionsAllowed int `json:"disruptionsAllowed"`
+			DesiredHealthy     int `json:"desiredHealthy"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+// ResourceQuotaList matches core/v1 ResourceQuotas (all namespaces).
+type ResourceQuotaList struct {
+	Items []struct {
+		Meta ObjectMeta `json:"metadata"`
+	} `json:"items"`
+}
+
+// DeploymentList matches apps/v1 Deployments (all namespaces).
+type DeploymentList struct {
+	Items []struct {
+		Meta ObjectMeta `json:"metadata"`
+	} `json:"items"`
+}
+
+func (c *Client) PodDisruptionBudgetsAll(ctx context.Context) (*PodDisruptionBudgetList, error) {
+	var l PodDisruptionBudgetList
+	if err := c.GetJSON(ctx, "/apis/policy/v1/poddisruptionbudgets", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+func (c *Client) ResourceQuotasAll(ctx context.Context) (*ResourceQuotaList, error) {
+	var l ResourceQuotaList
+	if err := c.GetJSON(ctx, "/api/v1/resourcequotas", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+// DeploymentsIn fetches deployments of one namespace.
+func (c *Client) DeploymentsIn(ctx context.Context, ns string) (*DeploymentList, error) {
+	var l DeploymentList
+	if err := c.GetJSON(ctx, "/apis/apps/v1/namespaces/"+ns+"/deployments", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+// DaemonSetList matches apps/v1 DaemonSets (all namespaces).
+type DaemonSetList struct {
+	Items []struct {
+		Meta   ObjectMeta `json:"metadata"`
+		Status struct {
+			DesiredNumberScheduled int `json:"desiredNumberScheduled"`
+			CurrentNumberScheduled int `json:"currentNumberScheduled"`
+			NumberAvailable        int `json:"numberAvailable"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+func (c *Client) DaemonSetsAll(ctx context.Context) (*DaemonSetList, error) {
+	var l DaemonSetList
+	if err := c.GetJSON(ctx, "/apis/apps/v1/daemonsets", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
 }

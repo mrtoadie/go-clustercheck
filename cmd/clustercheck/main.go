@@ -35,12 +35,17 @@ func main() {
 
 	checks := []audit.Check{
 		audit.NewClusterInfo(),
+		audit.NewControlPlane(),
 		audit.NewStorage(),
 		audit.NewPodIssues(),
 		audit.NewPodRestarts(),
 		audit.NewCertificates(),
 		audit.NewNetworkPolicies(),
 		audit.NewPSA(),
+		audit.NewPDB(),
+		audit.NewQuotas(),
+		audit.NewBackup(),
+		audit.NewDaemonSets(),
 	}
 
 	ctx := context.Background()
