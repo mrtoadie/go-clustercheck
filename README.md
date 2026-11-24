@@ -14,13 +14,12 @@ one data source, and a weighted readiness score.
 $ ./clustercheck
 
 | Pod Stability (Restarts > 5)
-  ✗ Containers     38 above threshold, 28 active in last 24h (top 10)
-  · Details        longhorn-system/longhorn-manager-wkmsg (104.2/day) ACTIVE, ...
+  ⚠ Containers     18 above threshold, 0 crashlooping (dense + recent, top 10 shown)
 
-Readiness Score: 53% (7/13 weighted points, 7 criteria) [grade: red]
+Readiness Score: 81% (18/22 weighted points, 12 criteria) [grade: yellow]
 ──────────────────────────────
   ✓ All Nodes Ready (w3): 4/4 ready
-  ✗ No Active Crashloops (w3): 28 containers restarted within last 24h
+  ✓ API Server Ready (w3): readyz check passed
   ...
 ```
 
@@ -47,22 +46,39 @@ The rewrite keeps the intent and changes the foundation:
 
 ## Features
 
-Seven checks, each returning structured results:
+Twelve checks, each returning structured results:
 
-| Check                  | What it looks at                                                                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cluster Info           | API version, namespace/node/pod counts, node readiness                                                                                                              |
-| Storage Status         | StorageClasses, default SC, PV phases, orphaned `Released` PVs, pending PVCs                                                                                        |
-| Problem Pods           | pods that are neither `Running` nor `Succeeded` (job pods are healthy, not errors)                                                                                  |
-| Pod Stability          | containers with >5 restarts, classified by **rate and recency** — an active crashloop (`<24h`) is a FAIL, a pod that accumulated restarts over months is statistics |
-| Certificates & TLS     | every `kubernetes.io/tls` secret, leaf certificate expiry via `crypto/x509`, expired / <30d / healthy buckets                                                       |
-| Network Policies       | policy count and namespaces without any policy                                                                                                                      |
-| Pod Security Admission | namespaces with `pod-security.kubernetes.io/enforce` labels                                                                                                         |
+| Check                  | What it looks at                                                                                                                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cluster Info           | API version, namespace/node/pod counts, node readiness                                                                                                                                              |
+| Storage Status         | StorageClasses, default SC, PV phases, orphaned `Released` PVs, pending PVCs                                                                                                                        |
+| Problem Pods           | pods with a non-healthy phase AND containers stuck in waiting states like `CrashLoopBackOff`/`ImagePullBackOff` — the pod phase alone says "Running" while a container burns                        |
+| Pod Stability          | containers with >5 restarts, classified by **density and recency** — dense (≥1/day) AND recent (<6h) is an active crashloop; boot artifacts and long-term accumulation are reported without failing |
+| Certificates & TLS     | every `kubernetes.io/tls` secret, leaf certificate expiry via `crypto/x509`, expired / <30d / healthy buckets                                                                                       |
+| Network Policies       | policy count and namespaces without any policy                                                                                                                                                      |
+| Pod Security Admission | namespaces with `pod-security.kubernetes.io/enforce` labels                                                                                                                                         |
+| Control Plane          | `/readyz?verbose` — missing entries are informational, real `[-]` failures are not                                                                                                                  |
+| DaemonSet Completeness | desired vs current vs available — the silent "PSA blocked recreation" failure class                                                                                                                 |
+| Disruption Budgets     | PDB coverage + which budgets currently allow zero disruptions                                                                                                                                       |
+| Resource Quotas        | quota coverage across namespaces                                                                                                                                                                    |
+| Backup Tooling         | Velero deployment detection                                                                                                                                                                         |
 
 Plus a **weighted readiness score** across all checks: fundamental health
 (nodes, crashloops) weighs 3, client-facing correctness weighs 2,
 hardening items weigh 1. The weights are visible in every output, so the
 score is an explained opinion, not a magic number.
+
+## Works on any conformant cluster
+
+The hand-rolled kubeconfig client follows the kubeconfig spec, not a
+vendor convention: `current-context` selects the context (merged
+multi-cluster configs are resolved correctly), and all four credential
+forms are supported — CA and client certificate both as inline base64
+(k3s style) and as file path (minikube/kubeadm style). Auth precedence:
+client certificate > bearer token > basic auth.
+
+Zero external client dependencies — tested against **k3s v1.36** and
+**minikube v1.35**.
 
 ### Crashloop discrimination
 
@@ -106,10 +122,11 @@ The binary is statically linked (`CGO_ENABLED=0`) and intentionally has no
 runtime dependencies — if it boots a Linux kernel, it should run. Verified
 in the wild on:
 
-| Platform                       | Arch  | Runs on                    |
-| ------------------------------ | ----- | -------------------------- |
-| Arch Linux                     | amd64 | daily driver / workstation |
-| Raspberry Pi OS (Debian-based) | arm64 | k3s cluster nodes          |
+| Platform                       | Arch  | Runs on                                                             |
+| ------------------------------ | ----- | ------------------------------------------------------------------- |
+| Arch Linux                     | amd64 | daily driver / workstation                                          |
+| Raspberry Pi OS (Debian-based) | arm64 | k3s cluster nodes                                                   |
+| minikube (driver VM)           | amd64 | local test clusters — k3s _and_ minikube audited by the same binary |
 
 ## Installation
 
@@ -157,37 +174,131 @@ to the registry — renderers and scoring pick it up automatically.
 ```markdown
 # Cluster Check Report
 
-**go-clustercheck** v0.2.0 · 2026-11-21 18:30
+**go-clustercheck** dev · 2026-11-24 22:29
 
-**Summary:** 7 checks · ✅ 4 ok · ⚠️ 2 warnings · ❌ 1 failed
+**Summary:** 12 checks · ✅ 8 ok · ⚠️ 3 warnings · ❌ 0 failed
 
-## ❌ Pod Stability (Restarts > 5)
+---
 
-| Status | Item       | Value                                                |
-| ------ | ---------- | ---------------------------------------------------- |
-| ❌     | Containers | `38 above threshold, 28 active in last 24h (top 10)` |
+## ✅ Cluster Info
+
+| Status | Item        | Value               |
+| ------ | ----------- | ------------------- |
+| ✅     | K8s Version | `v1.36.3+k3s1`      |
+| ✅     | Namespaces  | `10`                |
+| ✅     | Nodes       | `4 total / 4 ready` |
+| ✅     | Pods        | `23`                |
+
+## ✅ Control Plane Health (/readyz)
+
+| Status | Item   | Value                 |
+| ------ | ------ | --------------------- |
+| ✅     | Result | `readyz check passed` |
+
+## ✅ Storage Status
+
+| Status | Item           | Value                                                                |
+| ------ | -------------- | -------------------------------------------------------------------- |
+| ✅     | StorageClasses | `2`                                                                  |
+| ✅     | Default SC     | `local-path`                                                         |
+| ✅     | PVs            | `8 total \| Bound=7 \| Released=1`                                   |
+| ⚠️     | Released PVs   | `1 - pvc-54d04e1f-662a-4008-a640-53abdd3ffbc2 (ex dev/forgejo-data)` |
+| ✅     | PVCs           | `7 total \| 0 pending`                                               |
+
+## ✅ Problem Pods (phase or container state)
+
+| Status | Item   | Value                                                         |
+| ------ | ------ | ------------------------------------------------------------- |
+| ✅     | Result | `all pods Running or Succeeded, no blocking container states` |
+
+## ⚠️ Pod Stability (Restarts > 5)
+
+| Status | Item       | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ⚠️     | Containers | `18 above threshold, 0 crashlooping (dense + recent, top 10 shown)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ℹ️     | Details    | `cert-manager/cert-manager-cainjector-6ffc5b65d9-kj2kt (cert-manager-cainjector: 336, 9.3/day) (last 23h0m0s ago), kube-system/svclb-traefik-8d4930a1-zz5ll (lb-tcp-80: 123, 0.8/day) (last 23h0m0s ago), kube-system/svclb-traefik-8d4930a1-zz5ll (lb-tcp-443: 123, 0.8/day) (last 23h0m0s ago), kube-system/local-path-provisioner-58d557dc48-j565k (local-path-provisioner: 108, 0.9/day) (last 23h0m0s ago), kube-system/svclb-traefik-8d4930a1-x2zg5 (lb-tcp-443: 104, 0.8/day) (last 6h0m0s ago), kube-system/svclb-traefik-8d4930a1-x2zg5 (lb-tcp-80: 104, 0.8/day) (last 6h0m0s ago), dev/forgejo-6f554f4886-mc9wt (forgejo: 92, 0.9/day) (last 23h0m0s ago), kube-system/svclb-traefik-8d4930a1-78w5z (lb-tcp-80: 73, 0.8/day) (last 6h0m0s ago), kube-system/svclb-traefik-8d4930a1-78w5z (lb-tcp-443: 73, 0.8/day) (last 6h0m0s ago), kube-system/svclb-traefik-8d4930a1-pslts (lb-tcp-443: 65, 0.7/day) (last 6h0m0s ago)` |
+
+## ✅ Certificates & TLS
+
+| Status | Item        | Value                                                       |
+| ------ | ----------- | ----------------------------------------------------------- |
+| ✅     | TLS Secrets | `5 total \| 0 expired \| 0 expiring <30d \| 5 healthy`      |
+| ✅     | Next Expiry | `audiobookshelf/audiobookshelf-tls in 53 days (2027-01-17)` |
+
+## ⚠️ Network Policies
+
+| Status | Item       | Value                                                                                              |
+| ------ | ---------- | -------------------------------------------------------------------------------------------------- |
+| ℹ️     | Policies   | `0 across 10 namespaces`                                                                           |
+| ⚠️     | Without NP | `audiobookshelf, cert-manager, dev, kube-node-lease, kube-public, monitoring, nfs-storage, velero` |
+
+## ⚠️ Pod Security Admission (PSA)
+
+| Status | Item    | Value                                                                                      |
+| ------ | ------- | ------------------------------------------------------------------------------------------ |
+| ℹ️     | Enforce | `4/10 namespaces labeled`                                                                  |
+| ℹ️     | Labeled | `audiobookshelf=baseline, cert-manager=baseline, monitoring=privileged, velero=privileged` |
+
+## ✅ Pod Disruption Budgets
+
+| Status | Item | Value          |
+| ------ | ---- | -------------- |
+| ℹ️     | PDBs | `0 configured` |
+
+## ℹ️ Resource Quotas
+
+| Status | Item    | Value                   |
+| ------ | ------- | ----------------------- |
+| ℹ️     | Quotas  | `2 across 2 namespaces` |
+| ℹ️     | Covered | `audiobookshelf, dev`   |
+
+## ✅ Backup Tooling (Velero)
+
+| Status | Item   | Value                                  |
+| ------ | ------ | -------------------------------------- |
+| ✅     | Velero | `deployment found in namespace velero` |
+
+## ✅ DaemonSet Completeness
+
+| Status | Item         | Value                                                     |
+| ------ | ------------ | --------------------------------------------------------- |
+| ℹ️     | DaemonSets   | `2 total`                                                 |
+| ✅     | Completeness | `all DaemonSets complete (current = desired = available)` |
 
 ## 🎯 Production Readiness Score
 
-**Score: 53%** (7/13 weighted points across 7 criteria, grade: red)
+**Score: 81%** (18/22 weighted points across 12 criteria, grade: yellow)
 
-| Criterion                 | Weight | Passed | Detail                                    |
-| ------------------------- | ------ | ------ | ----------------------------------------- |
-| ✅ All Nodes Ready        | 3      | ✅     | `4/4 ready`                               |
-| ❌ No Active Crashloops   | 3      | ❌     | `28 containers restarted within last 24h` |
-| ✅ Certificates Valid     | 2      | ✅     | `0 expired, 0 expiring <30d`              |
-| ❌ NetworkPolicy Coverage | 1      | ❌     | `8 workload namespaces without NP`        |
-| ❌ PSA Enforcement        | 1      | ❌     | `5/11 namespaces with enforce label`      |
+| Criterion                 | Weight | Passed | Detail                                       |
+| ------------------------- | ------ | ------ | -------------------------------------------- |
+| ✅ All Nodes Ready        | 3      | ✅     | `4/4 ready`                                  |
+| ✅ API Server Ready       | 3      | ✅     | `readyz check passed`                        |
+| ❌ PV Hygiene             | 1      | ❌     | `failed=0 released=1`                        |
+| ✅ No Problem Pods        | 2      | ✅     | `0 pods broken by phase or container state`  |
+| ✅ No Active Crashloops   | 3      | ✅     | `0 crashlooping containers (dense + recent)` |
+| ✅ Certificates Valid     | 2      | ✅     | `0 expired, 0 expiring <30d`                 |
+| ❌ NetworkPolicy Coverage | 1      | ❌     | `8 workload namespaces without NP`           |
+| ❌ PSA Enforcement        | 1      | ❌     | `4/10 namespaces with enforce label`         |
+| ❌ Disruption Budgets     | 1      | ❌     | `0 PDBs, 0 currently blocking`               |
+| ✅ Resource Quotas        | 1      | ✅     | `2 quotas in 2 namespaces`                   |
+| ✅ Backup Tooling         | 2      | ✅     | `velero deployment present: true`            |
+| ✅ DaemonSet Completeness | 2      | ✅     | `0 incomplete of 2 DaemonSets`               |
+
+---
+
+_Generated by go-clustercheck dev_
 ```
 
-_(Yes, the example cluster ships a live Longhorn crashloop — real
-findings make better documentation than pristine green.)_
+_(Example from the 4-node k3s cluster that taught this tool most of
+its checks — including a PSA incident that silently blinded a node
+for nine days.)_
 
 </details>
 
 ## Roadmap
 
-- [ ] Additional checks for full bash-parity: PDBs, ResourceQuotas, backup tooling (Velero), GitOps presence, control-plane `/readyz`
+- [x] Additional checks for full bash-parity: PDBs, ResourceQuotas, backup tooling (Velero), GitOps presence, control-plane `/readyz`
+- [x] Full kubeconfig context resolution (merged configs, client-cert auth — k3s + minikube verified)
 - [ ] `-o json` output for dashboards and monitoring pipelines
 - [ ] Unit tests for scoring aggregation and certificate parsing
 - [ ] Optional `--thresholds` file to customize weights and warning windows

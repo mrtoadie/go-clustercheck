@@ -7,8 +7,9 @@ import (
 	"github.com/mrtoadie/go-clustercheck/internal/kube"
 )
 
-// ClusterInfo mirrors the CLUSTER INFOS section of the original bash
-// script: API version and basic object counts.
+// ClusterInfo mirrors the CLUSTER INFO section: API version, object counts.
+// Every subquery degrades to a WARN line on failure instead of crashing -
+// the cluster being half-unreachable is a report, not a panic.
 type ClusterInfo struct{}
 
 // NewClusterInfo returns the check instance.
@@ -17,8 +18,7 @@ func NewClusterInfo() ClusterInfo { return ClusterInfo{} }
 // Name implements Check.
 func (ClusterInfo) Name() string { return "Cluster Info" }
 
-// Run implements Check. Partial failures degrade the result instead of
-// aborting: each subsection collects its own error as a WARN line.
+// Run implements Check.
 func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 	res := Result{
 		Title:  "Cluster Info",
@@ -41,26 +41,29 @@ func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 		res.Lines = append(res.Lines, Line{Key: "Namespaces", Value: fmt.Sprintf("%d", len(ns.Items)), Status: StatusOK})
 	}
 
-	// Node count incl. Ready condition
+	// Node count incl. Ready condition.
+	// NOTE: ready is declared OUTSIDE the error branch so the score
+	// block below can reference it in both cases.
 	nodes, nodeErr := c.Nodes(ctx)
+	ready := 0
+	total := 0
 	if nodeErr != nil {
 		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("error: %v", nodeErr), Status: StatusWarn})
-	}
-	ready := 0
-	for _, n := range nodes.Items {
-		for _, cond := range n.Status.Conditions {
-			if cond.Type == "Ready" && cond.Status == "True" {
-				ready++
-				break
+	} else {
+		total = len(nodes.Items)
+		for _, n := range nodes.Items {
+			for _, cond := range n.Status.Conditions {
+				if cond.Type == "Ready" && cond.Status == "True" {
+					ready++
+					break
+				}
 			}
 		}
-	}
-	if nodeErr == nil {
 		lineStatus := StatusOK
-		if ready != len(nodes.Items) {
+		if ready != total {
 			lineStatus = StatusWarn
 		}
-		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("%d total / %d ready", len(nodes.Items), ready), Status: lineStatus})
+		res.Lines = append(res.Lines, Line{Key: "Nodes", Value: fmt.Sprintf("%d total / %d ready", total, ready), Status: lineStatus})
 	}
 
 	// Pod count
@@ -70,12 +73,13 @@ func (ClusterInfo) Run(ctx context.Context, c *kube.Client) Result {
 		res.Lines = append(res.Lines, Line{Key: "Pods", Value: fmt.Sprintf("%d", len(pods.Items)), Status: StatusOK})
 	}
 
-	// Score criterion: every node reports Ready
+	// Score criterion: every node reports Ready. Unknown state (fetch
+	// error) counts as failed - silence is not a pass.
 	res.Scores = append(res.Scores, ScoreImpact{
 		CheckName: "All Nodes Ready",
-		Passed:    nodeErr == nil && len(nodes.Items) > 0 && ready == len(nodes.Items),
-		Detail:    fmt.Sprintf("%d/%d ready", ready, len(nodes.Items)),
+		Passed:    nodeErr == nil && total > 0 && ready == total,
 		Weight:    3,
+		Detail:    fmt.Sprintf("%d/%d ready", ready, total),
 	})
 
 	return res
