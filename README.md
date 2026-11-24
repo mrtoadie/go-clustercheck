@@ -82,20 +82,11 @@ Zero external client dependencies — tested against **k3s v1.36** and
 
 ### Crashloop discrimination
 
-Raw restart counts lie on clusters that get powered down regularly —
-a nightly power cycle restarts every pod once per day, and naive
-recency checks misread that as an active crashloop. `clustercheck`
-requires **both** signals before flagging a container as ACTIVE:
+Raw restart counts lie on clusters that get powered down every night.
+`clustercheck` requires restart count _and_ recency before flagging a
+container as ACTIVE — boot artifacts pass, real crashloops don't.
 
-- **FAIL** — restarts are _dense_ (rate ≥ 1/day) **and** _recent_
-  (last restart < 6h): active crashloop, look now
-- **WARN** — sustained restart rate ≥ 1/day over the pod's lifetime:
-  chronic instability
-- **INFO** — high historic counts on long-lived pods: statistics, not
-  incidents
-
-Boot artifacts don't fail the check — real crashloops repeat quickly,
-boot restarts do not.
+→ Full reasoning and tuning: [docs/crashloop-detection.md](docs/crashloop-detection.md)
 
 ## Usage
 
@@ -154,19 +145,14 @@ make
 ## Architecture
 
 ```text
-kubeconfig ──▶ internal/kube      minimal API client (net/http + TLS)
-                    │
-                    ▼
-              internal/audit     checks → []Result{Status, Lines, Scores}
-                    │
-        ┌───────────┴───────────┐
-        ▼                       ▼
-  internal/report          internal/score
-  terminal | markdown      weighted aggregation
+kubeconfig ──▶ internal/kube ──▶ internal/audit ──▶ internal/report + internal/score
 ```
 
-Adding a check means implementing the `Check` interface and appending it
-to the registry — renderers and scoring pick it up automatically.
+Single static binary, GET-only API access, checks registered against a
+simple interface — renderers and scoring pick new checks up automatically.
+
+→ Package layout, adding a check, build & release details:
+[docs/architecture.md](docs/architecture.md)
 
 <details>
 <summary><strong>Example markdown output</strong> (from a real 4-node k3s cluster)</summary>
@@ -297,12 +283,10 @@ for nine days.)_
 
 ## Roadmap
 
-- [x] Additional checks for full bash-parity: PDBs, ResourceQuotas, backup tooling (Velero), GitOps presence, control-plane `/readyz`
-- [x] Full kubeconfig context resolution (merged configs, client-cert auth — k3s + minikube verified)
-- [ ] `-o json` output for dashboards and monitoring pipelines
-- [ ] Unit tests for scoring aggregation and certificate parsing
-- [ ] Optional `--thresholds` file to customize weights and warning windows
+- [ ] `/readyz` control-plane audit
+- [ ] `-o json` output
+- [ ] `--thresholds` for stricter baselines
 
 ## License
 
-MIT — [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
