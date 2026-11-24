@@ -3,60 +3,88 @@
 Most restart-count alarms are naive: they look at `restartCount > N` and call it
 a day. On a homelab cluster that gets powered off every night, that logic
 produces noise — every single pod "restarts" once per day, not because anything
-is broken, but because the nodes themselves boot fresh each morning.
+is broken, but because the nodes themselves boot fresh each morning. A count
+built on that statistic is worse than useless: it cries wolf daily.
 
-`clustercheck` refuses to confuse boot artifacts with real crashloops. It
-requires **two independent signals** before flagging a container:
+`clustercheck` separates three situations before it alarms:
 
-1. **Restart count above threshold** (default: 5) — the coarse filter.
-2. **Restart recency** — the container actually restarted _recently_, within
-   a configurable activity window (default: last 24h).
+| Situation                                          | Classification              | Report status |
+| -------------------------------------------------- | --------------------------- | ------------- |
+| Restarts are **dense AND recent**                  | active crashloop — look NOW | FAIL          |
+| Restart rate ≥ 1/day over lifetime, but not recent | chronic instability         | WARN          |
+| High historic count, low rate, long ago            | statistics, not incidents   | INFO          |
 
-A pod that was restarted once by last night's power cycle sits far outside
-the activity window and passes quietly. A pod that died eleven times since
-breakfast is **ACTIVE** and gets flagged.
+## The two signals: density and recency
+
+A container is only flagged as an **active crashloop** when **both** hold:
+
+1. **Density:** the restart rate over the pod's _entire lifetime_ is
+   ≥ 1 restart per day (`count / ageDays >= 1.0`).
+2. **Recency:** the last restart happened less than **6 hours ago**
+   (`lastState.terminated.finishedAt` within a 6h window).
+
+Real crashloops repeat quickly — every few minutes — so they satisfy both
+signals almost by definition. Boot artifacts do not: one restart per power
+cycle over a 100-day-old pod yields a rate around 1/day at best, and if the
+pod booted this morning, the last restart is typically hours past the 6h
+window by the time you look.
 
 ```
-restartCount: 6, last restart 3h ago   →  ACTIVE crashloop  ✗
-restartCount: 6, last restart 5d ago   →  stale boot relic  ✓
-restartCount: 90, last restart 5d ago  →  stale boot relic  ✓
+778 restarts, 8.4/day,  last restart  3h ago  →  ACTIVE  ✗ FAIL
+123 restarts, 0.8/day,  last restart 23h ago  →  reported, not alarmed
+ 90 restarts, 0.9/day,  last restart  5d ago  →  historic noise, INFO
 ```
 
-## Why the window matters more than the count
-
-On our own 4-node k3s cluster, the nightly power cycle gives every pod a
-guaranteed minimum of ~365 restarts per year. Any check built purely on
-counts would render the whole metric useless. Pairing count with recency
-turns a broken statistic into a usable signal: high count + recent activity
-means _ongoing_ trouble, high count + no recent activity means _history_.
+Note the second line: even a _recent_ restart is not enough without density.
+That is deliberate — it is exactly the nightly-boot signature.
 
 ## Reading the output
 
-Flagged containers show up in the **Pod Stability** section:
+The Pod Stability section shows the aggregate first, then the top 10
+containers by restart count:
 
 ```
 | Pod Stability (Restarts > 5)
-  ✗ Containers     21 above threshold, 21 active in last 24h (top 10)
-  · Details        monitoring/monitoring-prometheus-node-exporter-4jh4l
-                  (node-exporter: 778, 8.4/day) ACTIVE, ...
+  ⚠ Containers   18 above threshold, 0 crashlooping (dense + recent, top 10 shown)
+  · Details      cert-manager/cert-manager-cainjector-xxx (cert-manager-cainjector: 336,
+                 9.3/day) (last 23h0m0s ago), kube-system/svclb-traefik-... (lb-tcp-80: 123,
+                 0.8/day) (last 23h0m0s ago), ...
 ```
 
-The `ACTIVE` marker is the discriminator: it means the restart happened
-inside the activity window. If you only see the raw count listed without
-ACTIVE, the container is being reported for context, not alarmed on.
+- `0 crashlooping (dense + recent)` is the headline verdict — that number feeds
+  the readiness score criterion **No Active Crashloops** (weight 3).
+- The `(last 23h0m0s ago)` annotations are context so you can eyeball whether
+  an entry is _today's_ problem or yesterday's history.
+- An `ACTIVE` marker on an entry means it failed both filters — that is the
+  only thing that turns the section red.
+
+## Scoring
+
+Only active crashloops fail the score criterion. Chronic-instability entries
+cost nothing in points — they are a WARN to a human, not a gate for a cron
+job. Exit code `1` (pipeline mode) is likewise tied to real failures, not to
+the natural restart arithmetic of a power-cycled cluster.
 
 ## Tuning
 
-- `--restart-threshold` (env: `CLUSTERCHECK_RESTART_THRESHOLD`) — raise for
-  clusters with chatty workloads, lower for stricter SRE posture.
-- Activity window — adjustable if your cluster rarely reboots and you want
-  longer memory.
+The thresholds are exported struct fields on the check, tunable by callers
+and tests without touching the logic:
 
-## The PSA incident that motivated this check
+| Field              | Default | Meaning                               |
+| ------------------ | ------- | ------------------------------------- |
+| `RestartThreshold` | 5       | minimum restart count to be inspected |
+| `RecentWindow`     | 6h      | how recent the last restart must be   |
+| `DenseRate`        | 1.0     | restarts/day over lifetime required   |
 
-This check exists because of a real failure: a Pod Security Admission
-enforcement change silently landed a node outside the allowed security
-level, and kubelet kept rejecting its workloads **for nine days** before
-anyone noticed. Restart counts alone had normalized that signal away —
-every day looked like "just the usual nightly restarts". Recency-based
-discrimination makes that class of silent failure visible again.
+CLI flags for these are on the roadmap; today you adjust them by
+constructing the check with different values before running it.
+
+## Why this check exists
+
+This cluster is powered off every night by design. Under that regime, the
+restart-count metric accumulates guaranteed noise (~1 per pod per day, plus
+real incidents on top), and any alarm keyed on raw counts trains you to
+ignore it. Density × recency turns the metric back into a signal: it stays
+quiet across months of nightly boots and speaks up only when something is
+actually burning. It is the difference between a monitoring check you mute
+and one you read.

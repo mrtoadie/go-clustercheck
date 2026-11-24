@@ -6,7 +6,7 @@
 kubeconfig ──▶ internal/kube        minimal API client (net/http + TLS)
                     │
                     ▼
-           internal/audit           checks → []Result{Status, Lines, Score}
+           internal/audit           checks → []Result{Status, Lines, Scores}
                     │
         ┌───────────┴───────────┐
         ▼                       ▼
@@ -21,78 +21,153 @@ Design rules:
   arm64 Raspberry Pi nodes.
 - **GET-only API access.** The audit never mutates cluster state; a
   cluster-admin-ish _read_ kubeconfig is sufficient.
-- **Checks are pure functions** of API responses — no hidden state between
-  checks, easy to reason about, trivial to add new ones.
+- **Checks produce data, renderers produce output.** Terminal colors and
+  the Markdown report are rendered from the same `Result` structures —
+  no formatting logic lives in checks.
 
 ## Package layout
 
-| Package            | Responsibility                                  |
-| ------------------ | ----------------------------------------------- |
-| `cmd/clustercheck` | entrypoint, flag parsing, orchestration         |
-| `internal/kube`    | typed wrappers around the Kubernetes REST API   |
-| `internal/audit`   | every check implements `Check`, registry-driven |
-| `internal/report`  | terminal (ANSI) and Markdown renderers          |
-| `internal/score`   | weighted scoring, readiness grade               |
+| Package            | Responsibility                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `cmd/clustercheck` | entrypoint, flags (`-kubeconfig`, `-md`, `-noscore`), orchestration                |
+| `internal/kube`    | minimal hand-rolled REST client + kubeconfig loader (~300 lines, zero `client-go`) |
+| `internal/audit`   | `Check` interface, `Result`/`Line`/`ScoreImpact` types, all twelve checks          |
+| `internal/report`  | terminal (ANSI, auto-disabled when piped) and Markdown renderers                   |
+| `internal/score`   | weighted aggregation of `ScoreImpact` entries, readiness grade                     |
+
+## The core types
+
+```go
+// audit.Check — one audit function.
+type Check interface {
+    Name() string
+    Run(ctx context.Context, c *kube.Client) Result
+}
+
+// audit.Result — structured outcome of one check.
+type Result struct {
+    Title  string
+    Status Status          // OK | Warn | Fail | Info
+    Lines  []Line          // key/value detail rows, each with its own Status
+    Err    error
+    Scored bool
+    Scores []ScoreImpact   // one entry per scored criterion
+}
+
+// audit.ScoreImpact — pass/fail is decided HERE, by the check, which owns
+// the context. The score package only sums and renders.
+type ScoreImpact struct {
+    CheckName string
+    Passed    bool
+    Detail    string
+    Weight    int // unset/0 is treated as 1
+}
+```
+
+Two consequences worth internalizing:
+
+1. **A check decides its own pass/fail** inside `ScoreImpact`. The score
+   package is deliberately dumb — it cannot override a check's verdict
+   because it lacks the context (e.g. "this restart burst is a boot
+   artifact" lives in the crashloop check, not in the scorer).
+2. **Every line has its own status.** A single check result can mix
+   OK/INFO/WARN lines (e.g. Storage Status: classes OK, a Released PV
+   WARN) — which is what keeps the terminal report informative instead
+   of collapsing everything into one verdict emoji.
+
+## Checks and their scored criteria
+
+| Check                    | Scored criterion             | Weight |
+| ------------------------ | ---------------------------- | ------ |
+| Cluster Info             | All Nodes Ready              | 3      |
+| Control Plane Health     | API Server Ready (`/readyz`) | 3      |
+| Pod Stability (Restarts) | No Active Crashloops         | 3      |
+| Problem Pods             | No Problem Pods              | 2      |
+| Certificates & TLS       | Certificates Valid           | 2      |
+| DaemonSet Completeness   | DaemonSet Completeness       | 2      |
+| Backup Tooling           | Backup Tooling (Velero)      | 2      |
+| Storage Status           | PV Hygiene                   | 1      |
+| Network Policies         | NetworkPolicy Coverage       | 1      |
+| Pod Security Admission   | PSA Enforcement              | 1      |
+| Pod Disruption Budgets   | Disruption Budgets           | 1      |
+| Resource Quotas          | Resource Quotas              | 1      |
+
+Rationale for the weighting: fundamental health (nodes, control plane,
+active crashloops) weighs 3, client-facing correctness (problem pods,
+certs, DaemonSets, backups) weighs 2, hardening/hygiene items weigh 1.
+The weights are printed in every output so the score reads as an
+explained opinion, not a magic number.
+
+**Checks are wired explicitly, not via a registry.** `main.go` lists all
+twelve checks in an ordered slice — what runs is visible in one place,
+execution order is deterministic, and there is no init()-time magic to
+trace. Adding a check means adding a constructor call to that slice.
 
 ## Adding a check
 
-Implement the `Check` interface and append your check to the registry.
-Renderers and the scoring engine pick it up automatically — no renderer
-changes, no scoring changes needed.
+1. Create `internal/audit/<yourcheck>.go`:
 
 ```go
-type Check struct {
-    Name   string   // human-readable, shown in the report
-    Weight int      // contribution to the readiness score
-    Run    func(ctx context.Context, k kube.Client) ([]Result, error)
+type UnusedConfigMaps struct{}
+
+func NewUnusedConfigMaps() UnusedConfigMaps { return UnusedConfigMaps{} }
+
+// Name implements Check.
+func (UnusedConfigMaps) Name() string { return "Unused ConfigMaps" }
+
+// Run implements Check.
+func (UnusedConfigMaps) Run(ctx context.Context, c *kube.Client) audit.Result {
+    res := audit.Result{Title: "Unused ConfigMaps"}
+    // fetch data, fill res.Lines, set res.Status,
+    // optionally append audit.ScoreImpact{...}
+    return res
 }
 ```
 
-Minimal example:
+2. Register it in `cmd/clustercheck/main.go`:
 
 ```go
-func init() {
-    audit.Register(audit.Check{
-        Name:   "Unused ConfigMaps",
-        Weight: 1,
-        Run: func(ctx context.Context, k kube.Client) ([]Result, error) {
-            cms, err := k.ListConfigMaps(ctx)
-            if err != nil {
-                return nil, err
-            }
-            // ... build []Result{Status, Lines, Score}
-            return results, nil
-        },
-    })
+checks := []audit.Check{
+    // ...existing checks...
+    audit.NewUnusedConfigMaps(),
 }
 ```
 
-Guidelines for new checks:
+That is the whole integration — terminal and markdown renderers and the
+readiness score consume the new `Result` automatically.
 
-- **Fail loudly, don't guess.** If an API call fails, return the error —
-  the renderer surfaces it; a check that silently returns "OK" on error
-  is worse than one that crashes.
-- **Separate observation from verdict.** `Result.Lines` carry raw facts;
-  `Result.Status` carries the pass/warn/fail call. Keep them decoupled so
-  you can change thresholds without losing the underlying data.
-- **Weights are promises.** Once a check contributes to the readiness
-  score, removing or reweighting it changes every user's baseline —
-  document the change in the release notes.
+### Guidelines for new checks
+
+- **Fail loudly, don't guess.** A fetch error becomes `res.Err = err`
+  (the renderer shows it as a failed check) or a WARN line — never a
+  silent OK. Silence is not a pass.
+- **Separate observation from verdict.** `Result.Lines` carry the raw
+  facts; `Result.Status` and `ScoreImpact.Passed` carry the judgment.
+  Keep them decoupled so thresholds can change without losing data.
+- **Degradation beats panic.** Sub-queries that fail degrade to WARN
+  lines within the result (see `ClusterInfo`), so a half-unreachable
+  cluster still produces a usable report.
+- **Weights are promises.** Removing or reweighting a scored criterion
+  changes every user's score baseline — document it in the release notes.
 
 ## Building
 
 ```bash
-make build            # bin/clustercheck, static, UPX-compressed
-make build COMPRESS=0 # skip UPX (debugging symbols, faster startup)
+make build            # bin/clustercheck, static, stripped, UPX-compressed
+make build COMPRESS=0 # skip UPX (keeps debug symbols, faster startup)
 make clean            # remove bin/
 ```
 
-Version stamping comes from `git describe --tags --always --dirty`
+Version stamping comes from `git describe --tags --always --dirty`,
 injected via `-ldflags "-X main.version=..."` at build time.
+`-trimpath` keeps builds reproducible.
 
 ## Release process
 
 Releases are cut by pushing an annotated tag (`v*`); GitHub Actions
 builds `linux/amd64` and `linux/arm64`, each shipped as a plain stripped
 binary plus a UPX-compressed `-upx` variant (~60% smaller, marginally
-slower startup).
+slower startup). `make build` locally runs the same pipeline — including
+the UPX step that once broke CI when it packed the same binary twice
+(see commit history, lesson learned: verify with `make build`, not
+`go build`).
