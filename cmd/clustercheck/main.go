@@ -46,6 +46,7 @@ func main() {
 		audit.NewQuotas(),
 		audit.NewBackup(),
 		audit.NewDaemonSets(),
+		audit.NewServices(),
 	}
 
 	ctx := context.Background()

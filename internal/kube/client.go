@@ -597,6 +597,63 @@ func (c *Client) DaemonSetsAll(ctx context.Context) (*DaemonSetList, error) {
 	return &l, nil
 }
 
+// Service is the service subset used by the checks.
+type Service struct {
+	Meta ObjectMeta `json:"metadata"`
+	Spec struct {
+		Type     string            `json:"type"`
+		Selector map[string]string `json:"selector,omitempty"`
+	} `json:"spec"`
+	Status struct {
+		LoadBalancer struct {
+			Ingress []struct {
+				IP       string `json:"ip,omitempty"`
+				Hostname string `json:"hostname,omitempty"`
+			} `json:"ingress,omitempty"`
+		} `json:"loadBalancer,omitempty"`
+	} `json:"status"`
+}
+
+// ServiceList matches a core/v1 Service list (all namespaces).
+type ServiceList struct {
+	Items []Service `json:"items"`
+}
+
+// EndpointSubset counts ready and not-ready addresses of one endpoint slice.
+type EndpointSubset struct {
+	Addresses         []struct{} `json:"addresses,omitempty"`
+	NotReadyAddresses []struct{} `json:"notReadyAddresses,omitempty"`
+}
+
+// Endpoints is the endpoints subset used by the checks.
+type Endpoints struct {
+	Meta    ObjectMeta       `json:"metadata"`
+	Subsets []EndpointSubset `json:"subsets,omitempty"`
+}
+
+// EndpointsList matches a core/v1 Endpoints list (all namespaces).
+type EndpointsList struct {
+	Items []Endpoints `json:"items"`
+}
+
+// ServicesAll lists all Services across all namespaces.
+func (c *Client) ServicesAll(ctx context.Context) (*ServiceList, error) {
+	var l ServiceList
+	if err := c.GetJSON(ctx, "/api/v1/services", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+// EndpointsAll lists all Endpoints across all namespaces.
+func (c *Client) EndpointsAll(ctx context.Context) (*EndpointsList, error) {
+	var l EndpointsList
+	if err := c.GetJSON(ctx, "/api/v1/endpoints", &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
 // resolvePath returns the kubeconfig path: explicit argument first,
 // then $KUBECONFIG, then the default ~/.kube/config.
 func resolvePath(explicit string) (string, error) {
